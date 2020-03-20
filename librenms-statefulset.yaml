@@ -1,0 +1,238 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: librenms-admin-user
+type: Opaque
+data:
+  username: YWRtaW4=
+  password: YWRtaW4=
+  email: dGVzdEBleGFtcGxlLmNvbQ==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: librenms-conf
+  labels:
+    app: librenms
+data:
+  config-interfaces-php: |
+    <?php
+
+    $config['bad_if_regexp'][] = '/^docker[-\w].*$/';
+    $config['bad_if_regexp'][] = '/^lxcbr[0-9]+$/';
+    $config['bad_if_regexp'][] = '/^veth.*$/';
+    $config['bad_if_regexp'][] = '/^virbr.*$/';
+    $config['bad_if_regexp'][] = '/^lo$/';
+    $config['bad_if_regexp'][] = '/^macvtap.*$/';
+    $config['bad_if_regexp'][] = '/gre.*$/';
+    $config['bad_if_regexp'][] = '/tun[0-9]+$/';
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: php-dbconfig
+  labels:
+    app: librenms
+data:
+  config.php.default: |
+    <?php
+    ## Have a look in defaults.inc.php for examples of settings you can set here. DO NOT EDIT defaults.inc.php!
+
+    ### Database config
+    $config['db_host'] = 'mysql.default.svc.cluster.local';
+    $config['db_port'] = '3306';
+    $config['db_user'] = 'root';
+    $config['db_pass'] = '123456';
+    $config['db_name'] = 'librenms';
+    $config['db_socket'] = '';
+
+    // This is the user LibreNMS will run as
+    //Please ensure this user is created and has the correct permissions to your install
+    $config['user'] = 'librenms';
+
+    ### Locations - it is recommended to keep the default
+    #$config['install_dir']  = "/opt/librenms";
+
+    ### This should only be set if you want to force a particular hostname/port
+    ### It will prevent the web interface being usable form any other hostname
+    #$config['base_url']        = "http://librenms.company.com";
+
+    ### Enable this to use rrdcached. Be sure rrd_dir is within the rrdcached dir
+    ### and that your web server has permission to talk to rrdcached.
+    #$config['rrdcached']    = "unix:/var/run/rrdcached.sock";
+
+    ### Default community
+    $config['snmp']['community'] = array("public");
+
+    ### Authentication Model
+    $config['auth_mechanism'] = "mysql"; # default, other options: ldap, http-auth
+    #$config['http_auth_guest'] = "guest"; # remember to configure this user if you use http-auth
+
+    ### List of RFC1918 networks to allow scanning-based discovery
+    #$config['nets'][] = "10.0.0.0/8";
+    #$config['nets'][] = "172.16.0.0/12";
+    #$config['nets'][] = "192.168.0.0/16";
+
+    # Update configuration
+    #$config['update_channel'] = 'release';  # uncomment to follow the monthly release channel
+    #$config['update'] = 0;  # uncomment to completely disable updates
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: librenms
+  labels:
+    app: librenms
+spec:
+  type: LoadBalancer
+  ports:
+    - name: http
+      port: 31971
+      targetPort: 31971
+    - name: nginx
+      port: 80
+      targetPort: 80
+  selector:
+    app: librenms
+---
+# for versions before 1.8.0 use apps/v1beta1
+apiVersion: apps/v1beta2
+kind: StatefulSet
+metadata:
+  name: librenms
+spec:
+  selector:
+    matchLabels:
+      app: librenms
+  serviceName: librenms
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: librenms
+    spec:
+      initContainers:
+      - name: init-librenmsdb
+        image: jarischaefer/docker-librenms:latest
+        env:
+        - name: APP_KEY
+          value: "base64:VYfuekU+TDQKmB7pSmkXMKe9YYjULP1rzA1Tdt23oew="
+        - name: DB_HOST
+          value: "mysql.default.svc.cluster.local"
+        - name: DB_NAME
+          value: "librenms"
+        - name: DB_PORT
+          value: "3306"
+        - name: DB_USER
+          value: "root"
+        - name: DB_PASS
+          value: "123456"
+        - name: BASE_URL
+          value: "http://mysql.default.svc.cluster.local"
+        - name: TZ
+          value: "UTC"
+        - name: USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: librenms-admin-user
+              key: username
+        - name: PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: librenms-admin-user
+              key: password
+        - name: EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: librenms-admin-user
+              key: email
+        command:
+        - su
+        - "-p"
+        - "librenms"
+        - "-c"
+        - "cd /opt/librenms && php /opt/librenms/build-base.php && php /opt/librenms/adduser.php ${USERNAME} ${PASSWORD} 10 ${EMAIL}"
+      containers:
+      - name: librenms
+        image: jarischaefer/docker-librenms:latest
+        env:
+        - name: APP_KEY
+          value: "base64:VYfuekU+TDQKmB7pSmkXMKe9YYjULP1rzA1Tdt23oew="
+        - name: DB_HOST
+          value: "mysql.default.svc.cluster.local"
+        - name: DB_NAME
+          value: "librenms"
+        - name: DB_PORT
+          value: "3306"
+        - name: DB_USER
+          value: "root"
+        - name: DB_PASS
+          value: "123456"
+        - name: BASE_URL
+          value: "http://mysql.default.svc.cluster.local/"
+        - name: TZ
+          value: "UTC"
+        ports:
+        - name: librenms-http
+          containerPort: 80
+        # - name: librenms-https
+          # containerPort: 443
+        volumeMounts:
+        - name: librenms-logs
+          mountPath: /opt/librenms/logs
+        - name: librenms-rrd
+          mountPath: /opt/librenms/rrd
+        # - name: libressl
+          # mountPath: /etc/nginx/ssl
+        - mountPath: /opt/librenms/conf.d
+          name: librenms-conf
+        - name: dbconfig
+          mountPath: /opt/librenms/config.php.default
+          readOnly: true
+          subPath: config.php.default
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 15
+          periodSeconds: 20
+      volumes:
+      - name: dbconfig
+        configMap:
+          name: php-dbconfig
+      - name: librenms-conf
+        configMap:
+          name: librenms-conf
+          items:
+          - key: config-interfaces-php
+            path: interfaces.php
+  volumeClaimTemplates:
+  - metadata:
+      name: librenms-logs
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 2Gi
+  - metadata:
+      name: librenms-rrd
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 2Gi
+  # - metadata:
+      # name: libressl
+    # spec:
+      # accessModes: ["ReadWriteOnce"]
+      # resources:
+        # requests:
+          # storage: 1Gi

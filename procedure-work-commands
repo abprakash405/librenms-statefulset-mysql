@@ -1,0 +1,72 @@
+root@ip-172-31-23-16:/home/ubuntu# docker run --rm jarischaefer/docker-librenms generate_key
+base64:VYfuekU+TDQKmB7pSmkXMKe9YYjULP1rzA1Tdt23oew=
+
+docker run -d -h librenms -p 80:80 -e APP_KEY=base64:VYfuekU+TDQKmB7pSmkXMKe9YYjULP1rzA1Tdt23oew= -e DB_HOST=localhost -e DB_NAME=librenms -e DB_USER=librenms -e DB_PASS=secret -e BASE_URL=http://localhost -v /data/logs:/opt/librenms/logs -v /data/rrd:/opt/librenms/rrd --name librenms jarischaefer/docker-librenms
+
+#password nor required for root 
+mysql -u root -p 
+
+CREATE USER 'newuser'@'localhost' IDENTIFIED BY 'password';
+CREATE USER 'newuser2'@'mysql' IDENTIFIED BY 'password';
+CREATE USER 'newuser'@'mysql.default.svc.cluster.local' IDENTIFIED BY 'password';
+
+GRANT ALL ON librenms.* TO 'newuser'@'localhost' IDENTIFIED BY 'password' WITH GRANT OPTION;
+GRANT ALL ON librenms.* TO 'newuser2'@'mysql' IDENTIFIED BY 'password' WITH GRANT OPTION;
+GRANT ALL ON librenms.* TO 'newuser'@'mysql.default.svc.cluster.local' IDENTIFIED BY 'password' WITH GRANT OPTION;
+
+FLUSH PRIVILEGES;
+
+EXIT;
+
+------------------------------------------
+current problem is: 
+pod is trying to connect to local DB instead of picking given ENV paramters related DB. 
+
+#powershell:
+Set-Alias -Name k -Value kubectl
+
+mysql -u root -h mysql.default.svc.cluster.local -p
+mysql -u newuser -h mysql.default.svc.cluster.local -p
+mysql -u newuser2 -h mysql -p
+mysql -u newuser2 -p
+mysql -u newuser -h localhost -p
+
+
+CREATE USER 'non-root'@'localhost' IDENTIFIED BY '123';
+CREATE USER 'non-root'@'mysql.default.svc.cluster.local' IDENTIFIED BY '123';
+GRANT ALL PRIVILEGES ON * . * TO 'non-root'@'localhost';
+GRANT ALL PRIVILEGES ON * . * TO 'non-root'@'mysql.default.svc.cluster.local';
+FLUSH PRIVILEGES;
+
+
+
+mysql -u non-root -h localhost -p
+mysql -u non-root -h mysql -p
+mysql -u non-root -h mysql.default.svc.cluster.local -p
+mysql -u non-root -h mysql -p
+mysql -u non-root -p
+mysql -u root -h mysql.default.svc.cluster.local -p
+mysql -u root -h localhost -p
+
+
+select * from mysql. user;
+
+
+mysql --protocol=tcp --host=localhost --port=3306 --user=root -p
+mysql --protocol=tcp --host=mysql.default.svc.cluster.local --port=3306 --user=root -p
+mysql --protocol=tcp --host=mysql --port=3306 --user=root -p
+
+
+#for changing root password 
+mysqladmin -u root -h mysql -p password 123
+
+mysql -u root -p 
+
+
+mysql -u non-root -h mysql.default.svc.cluster.local -p
+
+
+
+
+
+
